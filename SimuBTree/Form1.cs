@@ -92,22 +92,22 @@ namespace SimuBTree
     {
       BTreeView.SuspendLayout();
       BTreeNode root = BTree.Root;
-      bool children = root.Children.Count > 0;
+      bool children = !root.Leaf;
       BTreeView.Nodes.Clear();
       // TODO : 
       if (children)
       {
         TreeNode node = new TreeNode("-");
         BTreeView.Nodes.Add(node);
-        ShowTreeView(node, root.Children[0]);
+        ShowTreeView(node, root.Child(0));
       }
-      for (int i = 0; i < root.Keys.Count; i++)
+      for (int i = 0; i < root.NbKeys; i++)
       {
-        TreeNode node = new TreeNode(root.Keys[i].ToString());
+        TreeNode node = new TreeNode(root.Key(i).ToString());
         BTreeView.Nodes.Add(node);
         if (children)
         {
-          ShowTreeView(node, root.Children[i + 1]);
+          ShowTreeView(node, root.Child(i + 1));
         }
       }
       BTreeView.ExpandAll();
@@ -116,51 +116,68 @@ namespace SimuBTree
 
     private void ShowTreeView(TreeNode parent, BTreeNode root)
     {
-      bool children = root.Children.Count > 0;
+      bool children = !root.Leaf;
       if (children)
       {
         TreeNode node = new TreeNode("-");
         parent.Nodes.Add(node);
-        ShowTreeView(node, root.Children[0]);
+        ShowTreeView(node, root.Child(0));
       }
-      for (int i = 0; i < root.Keys.Count; i++)
+      for (int i = 0; i < root.NbKeys; i++)
       {
-        TreeNode node = new TreeNode(root.Keys[i].ToString());
+        TreeNode node = new TreeNode(root.Key(i).ToString());
         parent.Nodes.Add(node);
         if (children)
         {
-          ShowTreeView(node, root.Children[i + 1]);
+          ShowTreeView(node, root.Child(i + 1));
         }
       }
     }
 
     private void ScanBTree(BTreeClass bTree)
     {
-      BTree.Scan();
+      bTree.Scan();
     }
 
     private void btMassAdd_Click(object sender, EventArgs e)
     {
-      BTreeClass BTree = new BTreeClass(Ordre);
-      // valeurs entre 0 et max-1
-      int max = 1_000_000_000;
-      // Nombre de tentatives d'insertions
-      // Le nombre final d'insertions est inférieur 
-      // si random.Next() renvoie plusieurs fois une même valeur
-      int nb = 60_000_000;
-      //      int seed = 0;
-      Random random = new Random();
-      Stopwatch stopwatch = Stopwatch.StartNew();
-      for (int i = 0; i < nb; i++)
+      try
       {
-        BTree.Add(random.Next(max));
+        Ordre = int.Parse(tbOrder.Text);
+        if (Ordre < 2)
+        {
+          throw new ApplicationException("L'ordre est incorrect");
+        }
+        BTreeClass BTree = new BTreeClass(Ordre);
+        // valeurs entre 0 et max-1
+        int max = 1_000_000_000;
+        // Nombre de tentatives d'insertions
+        // Le nombre final d'insertions est inférieur 
+        // si random.Next() renvoie plusieurs fois une même valeur
+        int nb = 60_000_000;
+        //      int seed = 0;
+        Random random = new Random();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        for (int i = 0; i < nb; i++)
+        {
+          BTree.Add(random.Next(max));
+        }
+        stopwatch.Stop();
+        Helper.Trace($"test insertion de {nb} valeurs en {stopwatch.Elapsed}");
+        stopwatch.Restart();
+        ScanBTree(BTree);
+        Helper.Trace($"vérification en {stopwatch.Elapsed}");
       }
-      stopwatch.Stop();
-      Helper.Trace($"test insertion de {nb} valeurs en {stopwatch.Elapsed}");
-      stopwatch.Restart();
-      ScanBTree(BTree);
-      Helper.Trace($"vérification en {stopwatch.Elapsed}");
+      catch (ApplicationException ex)
+      {
+        Trace(ex.Message);
+      }
+      catch (Exception ex)
+      {
+        Trace(ex.ToString());
+      }
     }
+
     delegate void TraceDelegate(string msg);
 
     public void Trace(string msg)
@@ -193,10 +210,9 @@ namespace SimuBTree
         {
           throw new ApplicationException("Le max est incorrect");
         }
-        if (BTree == null || BTree.Order != Ordre)
-        {
-          BTree = new BTreeClass(Ordre);
-        }
+        Trace("début test");
+        // On part d'un arbre vide
+        BTree = new BTreeClass(Ordre);
         List<int> valeursDispo = new List<int>(max);
         List<int> valeursIncluses = new List<int>(nb);
         for (int i = 0; i < max; i++)
@@ -229,13 +245,9 @@ namespace SimuBTree
             int n = valeursIncluses[j];
             valeursIncluses.RemoveAt(j);
             valeursDispo.Add(n);
-            if (n == 2033)
-            {
-              Debug.Print($"suppr {n}");
-            }
             bool bOK = BTree.Remove(n);
             Helper.Assert(bOK);
-            ScanBTree(BTree);
+            //ScanBTree(BTree);
           }
           // Et on rajoute qq clés
           int N = S / 2;
@@ -260,7 +272,7 @@ namespace SimuBTree
         Trace(ex.ToString());
         BTree = null;
       }
-
+      Trace("test terminé");
     }
   }
 }

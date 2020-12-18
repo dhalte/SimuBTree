@@ -7,15 +7,19 @@ namespace SimuBTree
 {
   class BTreeClass
   {
-    internal readonly int Order;
+    internal readonly int Order, HalfFull;
     internal int NbKeys = 0;
     internal int Deep;
+    internal bool IsFull(BTreeNode node) => node.NbKeys >= Order;
+    internal bool IsHalfFull(BTreeNode node) => node.NbKeys >= HalfFull;
+
     // On s'arrange pour que lors du split de la racine, root reste la racine.
     // Ce n'est pas obligatoire, mais sera utile lorsque on gèrera un BTree persistant.
     internal readonly BTreeNode Root = new BTreeNode();
     internal BTreeClass(int order)
     {
       Order = order;
+      HalfFull = (order - 1) / 2;
     }
 
     #region Ajout clé
@@ -37,7 +41,7 @@ namespace SimuBTree
         return false;
       }
       int idxK = item.idxK;
-      if (Root.Children.Count != 0)
+      if (!Root.Leaf)
       {
         (bool success, bool split, int keyUP, BTreeNode newNode) result = Add(idxK + 1, value, Root);
         if (!result.success)
@@ -53,9 +57,8 @@ namespace SimuBTree
       {
         Root.InsertValue(idxK + 1, value, null);
       }
-      if (Root.Keys.Count >= Order)
+      if (IsFull(Root))
       {
-        Helper.Assert(Root.Keys.Count == Order);
         SplitRoot();
       }
       NbKeys++;
@@ -70,14 +73,14 @@ namespace SimuBTree
     // return true
     private (bool success, bool split, int keyUP, BTreeNode newNode) Add(int idxChild, int value, BTreeNode parent)
     {
-      BTreeNode node = parent.Children[idxChild];
+      BTreeNode node = parent.Child(idxChild);
       (int idxK, bool exists) item = node.FindValue(value);
       int idxK = item.idxK;
       if (item.exists)
       {
         return (false, false, int.MinValue, null);
       }
-      if (node.Children.Count != 0)
+      if (!node.Leaf)
       {
         (bool success, bool split, int keyUP, BTreeNode newNode) result = Add(idxK + 1, value, node);
         if (!result.success)
@@ -94,9 +97,8 @@ namespace SimuBTree
         node.InsertValue(idxK + 1, value, null);
       }
 
-      if (node.Keys.Count >= Order)
+      if (IsFull(node))
       {
-        Helper.Assert(node.Keys.Count == Order);
         return SplitNode(node);
       }
 
@@ -106,49 +108,45 @@ namespace SimuBTree
     private void SplitRoot()
     {
       Deep++;
-      bool bChildren = Root.Children.Count > 0;
+      bool bChildren = !Root.Leaf;
       int idxPivot = Order / 2;
-      int pivot = Root.Keys[idxPivot];
+      int pivot = Root.Key(idxPivot);
       BTreeNode gauche = new BTreeNode();
       BTreeNode droite = new BTreeNode();
       for (int i = 0; i < idxPivot; i++)
       {
-        gauche.Keys.Add(Root.Keys[i]);
+        gauche.AddKey(Root.Key(i));
       }
       for (int i = idxPivot + 1; i < Order; i++)
       {
-        droite.Keys.Add(Root.Keys[i]);
+        droite.AddKey(Root.Key(i));
       }
       if (bChildren)
       {
         for (int i = 0; i <= idxPivot; i++)
         {
-          gauche.Children.Add(Root.Children[i]);
+          gauche.AddChild(Root.Child(i));
         }
         for (int i = idxPivot + 1; i <= Order; i++)
         {
-          droite.Children.Add(Root.Children[i]);
+          droite.AddChild(Root.Child(i));
         }
       }
-      Root.Keys.Clear();
-      Root.Keys.Add(pivot);
-      Root.Children.Clear();
-      Root.Children.Add(gauche);
-      Root.Children.Add(droite);
+      Root.InitNewRoot(pivot, gauche, droite);
     }
 
     private (bool success, bool split, int keyUP, BTreeNode newNode) SplitNode(BTreeNode node)
     {
-      bool bChildren = node.Children.Count > 0;
+      bool bChildren = !node.Leaf;
       int idxPivot = Order / 2;
-      int pivot = node.Keys[idxPivot];
+      int pivot = node.Key(idxPivot);
       BTreeNode newNode = new BTreeNode();
-      newNode.Keys.AddRange(node.Keys.GetRange(idxPivot + 1, Order - idxPivot - 1));
-      node.Keys.RemoveRange(idxPivot, Order - idxPivot);
+      newNode.AddKeys(node, idxPivot, Order);
+      node.RemoveKeys(idxPivot, Order);
       if (bChildren)
       {
-        newNode.Children.AddRange(node.Children.GetRange(idxPivot + 1, Order - idxPivot));
-        node.Children.RemoveRange(idxPivot + 1, Order - idxPivot);
+        newNode.AddChildren(node, idxPivot, Order);
+        node.RemoveChildren(idxPivot, Order);
       }
       return (true, true, pivot, newNode);
     }
@@ -172,7 +170,7 @@ namespace SimuBTree
           // On a trouvé la clé dans node
           break;
         }
-        if (node.Children.Count == 0)
+        if (node.Leaf)
         {
           // On est arrivé en bas de l'arbre sans avoir trouvé la clé
           return false;
@@ -180,38 +178,38 @@ namespace SimuBTree
         ancetres.Add(new BTreeNodeParent(node, idx));
         // idx est l'index de la + grande clé < value (ou -1)
         // idx+1 est l'index du sous-arbre pouvant contenir value
-        node = node.Children[idx + 1];
+        node = node.Child(idx + 1);
       }
 
-      if (node.Children.Count > 0)
+      if (!node.Leaf)
       {
         // On n'est pas dans une feuille. 
         // On va chercher la feuille contenant les plus grandes clés < value
         // node.Keys[idx] est la value à supprimer, node.Children[idx] est le sous-arbre qui contient la + grande clé < value
-        BTreeNode nodeMax = node.Children[idx];
+        BTreeNode nodeMax = node.Child(idx);
         // on ajoute à la liste des ancètres une indication semblable à celles 
         // ajoutées dans la boucle précédente, lorsqu'on ne trouvait pas value
         ancetres.Add(new BTreeNodeParent(node, idx - 1));
         int idxMax;
-        while (nodeMax.Children.Count > 0)
+        while (!nodeMax.Leaf)
         {
           // on simule le résultat de nodeMax.FindValue, pour cette value > à toute clé
-          idxMax = nodeMax.Keys.Count - 1;
+          idxMax = nodeMax.NbKeys - 1;
           ancetres.Add(new BTreeNodeParent(nodeMax, idxMax));
-          nodeMax = nodeMax.Children[idxMax+1];
+          nodeMax = nodeMax.Child(idxMax + 1);
         }
         // On remplace value par la plus grande de ces clés
-        idxMax = nodeMax.Keys.Count - 1;
-        int valueMax = nodeMax.Keys[idxMax];
-        node.Keys[idx] = valueMax;
+        idxMax = nodeMax.NbKeys - 1;
+        int valueMax = nodeMax.Key(idxMax);
+        node.SetKey(idx, valueMax);
         // Et maintenant, on va faire comme si on avait trouvé value dans nodeMax
         node = nodeMax;
         idx = idxMax;
       }
-      node.Keys.RemoveAt(idx);
+      node.RemoveKey(idx);
       NbKeys--;
 
-      if (node.Keys.Count < (Order - 1) / 2 && node != Root)
+      if (!IsHalfFull(node) && node != Root)
       {
         // La feuille est dépeuplée, débute le processus de balance ou de fusion
         BalanceOuFusionne(node, ancetres);
@@ -244,40 +242,40 @@ namespace SimuBTree
       if (idx >= 0)
       {
         // Le voisin de gauche existe
-        sibling = parent.Children[idx];
-        if (sibling.Keys.Count > (Order - 1) / 2)
+        sibling = parent.Child(idx);
+        if (IsHalfFull(sibling))
         {
           // sibling a suffisamment de clés, il fournit la plus grande qui remonte dans parent,
           // à la place d'une clé de parent qui descend dans node
           // Balance
-          node.Keys.Insert(0, parent.Keys[idx]);
-          parent.Keys[idx] = sibling.Keys[sibling.Keys.Count - 1];
-          sibling.Keys.RemoveAt(sibling.Keys.Count - 1);
-          if (node.Children.Count > 0)
+          node.InsertKey(0, parent.Key(idx));
+          parent.SetKey(idx, sibling.Key(sibling.NbKeys - 1));
+          sibling.RemoveKey(sibling.NbKeys - 1);
+          if (!node.Leaf)
           {
-            node.Children.Insert(0, sibling.Children[sibling.Children.Count - 1]);
-            sibling.Children.RemoveAt(sibling.Children.Count - 1);
+            node.InsertChild(0, sibling.Child(sibling.NbChildren - 1));
+            sibling.RemoveChild(sibling.NbChildren - 1);
           }
           return; // =====================================================> RETURN
         }
       }
       // Le voisin de gauche n'existe pas, ou il est dépeuplé
-      if (idx < parent.Keys.Count - 1)
+      if (idx < parent.NbKeys - 1)
       {
         // Le voisin de droite existe
-        sibling = parent.Children[idx + 2];
-        if (sibling.Keys.Count > (Order - 1) / 2)
+        sibling = parent.Child(idx + 2);
+        if (IsHalfFull(sibling))
         {
           // sibling a suffisamment de clés, il fournit la plus petite qui remonte dans parent,
           // à la place d'une clé de parent qui descend dans node
           // Balance
-          node.Keys.Add(parent.Keys[idx + 1]);
-          parent.Keys[idx + 1] = sibling.Keys[0];
-          sibling.Keys.RemoveAt(0);
-          if (node.Children.Count > 0)
+          node.AddKey(parent.Key(idx + 1));
+          parent.SetKey(idx + 1, sibling.Key(0));
+          sibling.RemoveKey(0);
+          if (!node.Leaf)
           {
-            node.Children.Add(sibling.Children[0]);
-            sibling.Children.RemoveAt(0);
+            node.AddChild(sibling.Child(0));
+            sibling.RemoveChild(0);
           }
           return; // =====================================================> RETURN
         }
@@ -287,37 +285,36 @@ namespace SimuBTree
       if (idx >= 0)
       {
         // Le voisin de gauche existe, on va le fusionner avec node qui sera le voisin de droite, et la clé de parent qui les sépare
-        gauche = parent.Children[idx];
+        gauche = parent.Child(idx);
         droite = node;
       }
       else
       {
         gauche = node;
         idx += 1;
-        droite = parent.Children[idx + 1];
+        droite = parent.Child(idx + 1);
       }
       // On ajoute à "gauche" la clé qui descend du père
-      gauche.Keys.Add(parent.Keys[idx]);
+      gauche.AddKey(parent.Key(idx));
       // on enlève cette clé dans le père
-      parent.Keys.RemoveAt(idx);
+      parent.RemoveKey(idx);
       // on ajoute à "gauche" les clés de "droite"
-      gauche.Keys.AddRange(droite.Keys);
+      gauche.AddKeys(droite);
       // on retire le pointeur sur "droite"
-      parent.Children.RemoveAt(idx + 1);
+      parent.RemoveChild(idx + 1);
       // on ajoute à "gauche" les pointeurs qui étaient auparavant dans "droite"
-      gauche.Children.AddRange(droite.Children);
-      if (parent.Keys.Count < (Order - 1) / 2 && parent != Root)
+      gauche.AddChildren(droite);
+      if (!IsHalfFull(parent) && parent != Root)
       {
         ancetres.RemoveParent();
         BalanceOuFusionne(parent, ancetres);
       }
       // traiter cas particulier du parent == Root && parent.Keys.Count == 0 (après fusion)
-      if (parent == Root && Root.Keys.Count == 0)
+      if (parent == Root && Root.NbKeys == 0)
       {
         // On pourrait réaffecter Root = node;
         // Mais on veut conserver Root 
-        Root.Keys = gauche.Keys;
-        Root.Children = gauche.Children;
+        Root.InitNewRoot(gauche);
         Deep--;
       }
 
@@ -331,26 +328,20 @@ namespace SimuBTree
     // On parcourt le btree en profondeur
     private class ScanDataClass
     {
-      public BTreeClass BTree;
       public bool previousValueSet = false;
       public int previousValue = int.MinValue;
       public bool bLgCheminSet = false;
       public int lgChemin = int.MinValue;
       public int nbKeysMax = 0;
       public int nbKeysActual = 0;
-
-      public ScanDataClass(BTreeClass btree)
-      {
-        this.BTree = btree;
-      }
     }
     internal void Scan()
     {
-      if (Root.Keys.Count == 0)
+      if (Root.NbKeys == 0)
       {
         return;
       }
-      ScanDataClass scanData = new ScanDataClass(this);
+      ScanDataClass scanData = new ScanDataClass();
       ScanBTree(Root, 0, scanData);
       Helper.Trace($"lgChemin={scanData.lgChemin}, nbkeysmax={scanData.nbKeysMax}, nbkeysactual={scanData.nbKeysActual}, remplissage={100.0 * scanData.nbKeysActual / scanData.nbKeysMax} %");
       Helper.Assert(scanData.nbKeysActual == NbKeys);
@@ -358,14 +349,14 @@ namespace SimuBTree
     private void ScanBTree(BTreeNode node, int profondeur, ScanDataClass scanData)
     {
       scanData.nbKeysMax += Order - 1;
-      scanData.nbKeysActual += node.Keys.Count;
-      bool bchildren = node.Children.Count > 0;
-      Helper.Assert(node == Root || node.Keys.Count >= (Order - 1) / 2);
+      scanData.nbKeysActual += node.NbKeys;
+      bool bchildren = !node.Leaf;
+      Helper.Assert(node == Root || IsHalfFull(node));
       if (bchildren)
       {
         // On descend en bas à gauche
-        Helper.Assert(node.Keys.Count == node.Children.Count - 1);
-        ScanBTree(node.Children[0], profondeur + 1, scanData);
+        Helper.Assert(node.NbKeys == node.NbChildren - 1);
+        ScanBTree(node.Child(0), profondeur + 1, scanData);
       }
       else if (scanData.bLgCheminSet)
       {
@@ -376,13 +367,13 @@ namespace SimuBTree
         scanData.lgChemin = profondeur;
         scanData.bLgCheminSet = true;
       }
-      for (int i = 0; i < node.Keys.Count; i++)
+      for (int i = 0; i < node.NbKeys; i++)
       {
-        int value = node.Keys[i];
+        int value = node.Key(i);
         if (!scanData.previousValueSet)
         {
           Helper.Assert(i == 0 && !bchildren);
-          scanData.previousValue = node.Keys[0];
+          scanData.previousValue = node.Key(0);
           scanData.previousValueSet = true;
         }
         else
@@ -393,7 +384,7 @@ namespace SimuBTree
         }
         if (bchildren)
         {
-          ScanBTree(node.Children[i + 1], profondeur + 1, scanData);
+          ScanBTree(node.Child(i + 1), profondeur + 1, scanData);
         }
       }
     }

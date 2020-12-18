@@ -42,16 +42,16 @@ namespace SimuBTree
     private static void Dump(BTreeNode node, StringBuilder sb, int profondeur)
     {
       string cartouche = new string(' ', 4 * profondeur);
-      if (node.Children.Count > 0)
+      if (!node.Leaf)
       {
-        Dump(node.Children[0], sb, profondeur + 1);
+        Dump(node.Child(0), sb, profondeur + 1);
       }
-      for (int i = 0; i < node.Keys.Count; i++)
+      for (int i = 0; i < node.NbKeys; i++)
       {
-        sb.AppendLine($"{cartouche}{node.Keys[i]}");
-        if (node.Children.Count > i + 1)
+        sb.AppendLine($"{cartouche}{node.Key(i)}");
+        if (node.NbChildren > i + 1)
         {
-          Dump(node.Children[i + 1], sb, profondeur + 1);
+          Dump(node.Child(i + 1), sb, profondeur + 1);
         }
       }
     }
