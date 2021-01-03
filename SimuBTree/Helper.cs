@@ -49,7 +49,7 @@ namespace SimuBTree
       for (int i = 0; i < node.NbKeys; i++)
       {
         sb.AppendLine($"{cartouche}{node.Key(i)}");
-        if (node.NbChildren > i + 1)
+        if (!node.Leaf)
         {
           Dump(node.Child(i + 1), sb, profondeur + 1);
         }

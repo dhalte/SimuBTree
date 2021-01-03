@@ -155,14 +155,16 @@ namespace SimuBTree
         // Le nombre final d'insertions est inférieur 
         // si random.Next() renvoie plusieurs fois une même valeur
         int nb = 60_000_000;
-        //      int seed = 0;
-        Random random = new Random();
+        int seed = 0;
+        Random random = new Random(seed);
+        // Random random = new Random();
         Stopwatch stopwatch = Stopwatch.StartNew();
         for (int i = 0; i < nb; i++)
         {
           BTree.Add(random.Next(max));
         }
         stopwatch.Stop();
+        Helper.Trace($"Order={Ordre}");
         Helper.Trace($"test insertion de {nb} valeurs en {stopwatch.Elapsed}");
         stopwatch.Restart();
         ScanBTree(BTree);

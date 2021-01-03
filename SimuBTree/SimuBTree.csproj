@@ -6,4 +6,10 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="AddResult.cs" />
+    <Compile Remove="BTreeAncetres.cs" />
+    <Compile Remove="BTreeNodeParent.cs" />
+  </ItemGroup>
+
 </Project>
